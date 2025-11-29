@@ -7,7 +7,7 @@ pub mod gazelle_evaluate;
 // #[cfg(feature = "cambia_ev")]
 // pub mod cambia_evaluate;
 
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Debug)]
 #[ts(export)]
 pub enum EvaluatorType {
     Cambia,
@@ -16,14 +16,14 @@ pub enum EvaluatorType {
 }
 
 // Ease of grouping on downstream
-#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone, Debug)]
 #[ts(export)]
 pub enum EvaluationUnitScope {
     Release,
     Track(Option<u8>),
 }
 
-#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone, Debug)]
 #[ts(export)]
 pub enum EvaluationUnitClass {
     Critical,
@@ -34,7 +34,7 @@ pub enum EvaluationUnitClass {
 }
 
 // This will be used to indicate which field in the log is relevant to a EvaluationUnit
-#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone, Debug)]
 #[ts(export)]
 pub enum EvaluationUnitField {
     Encoding,
@@ -75,7 +75,7 @@ pub enum EvaluationUnitField {
 }
 
 // This holds the reasoning for the smallest unit of evaluation
-#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone, Debug)]
 #[ts(export)]
 pub struct EvaluationUnitData {
     pub scope: EvaluationUnitScope,
@@ -85,7 +85,7 @@ pub struct EvaluationUnitData {
 }
 
 // Output from a single evaluator
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Debug)]
 #[ts(export)]
 pub struct EvaluationCombined {
     pub evaluator: EvaluatorType,
@@ -93,14 +93,14 @@ pub struct EvaluationCombined {
     pub evaluations: Vec<Evaluation>,
 }
 
-#[derive(Serialize, Deserialize, TS)]
+#[derive(Serialize, Deserialize, TS, Debug)]
 #[ts(export)]
 pub struct Evaluation {
     pub score: String,
     pub evaluation_units: Vec<EvaluationUnit>,
 }
 
-#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, TS, Hash, PartialEq, Eq, Clone, Debug)]
 #[ts(export)]
 pub struct EvaluationUnit {
     pub unit_score: String,
