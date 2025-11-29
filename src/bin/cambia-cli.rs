@@ -35,9 +35,9 @@ use walkdir::WalkDir;
 #[derive(Parser, Debug)]
 #[command(name = "cambia-cli", author, version, about = "CD ripper log checker", long_about = None)]
 struct Cli {
-    /// Path to the rip log file or directory
-    #[arg(value_name = "PATH", value_hint = clap::ValueHint::AnyPath)]
-    path: PathBuf,
+    /// Path(s) to rip log file(s) or directory/ies
+    #[arg(value_name = "PATH", value_hint = clap::ValueHint::AnyPath, num_args = 1..)]
+    paths: Vec<PathBuf>,
 
     /// Save parsed log bytes to the specified directory
     #[arg(long, value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
@@ -64,33 +64,32 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), String> {
-    let metadata = fs::metadata(&cli.path)
-        .map_err(|err| format!("无法访问路径 {}: {err}", cli.path.display()))?;
-
     let mut log_paths: Vec<PathBuf> = Vec::new();
 
-    if metadata.is_dir() {
-        for entry in WalkDir::new(&cli.path).into_iter().filter_map(Result::ok) {
-            let path = entry.path();
-            if entry.file_type().is_file() {
-                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                    if ext.eq_ignore_ascii_case("log") {
-                        log_paths.push(path.to_path_buf());
+    for input_path in &cli.paths {
+        let metadata = fs::metadata(input_path)
+            .map_err(|err| format!("无法访问路径 {}: {err}", input_path.display()))?;
+
+        if metadata.is_dir() {
+            for entry in WalkDir::new(input_path).into_iter().filter_map(Result::ok) {
+                let path = entry.path();
+                if entry.file_type().is_file() {
+                    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                        if ext.eq_ignore_ascii_case("log") {
+                            log_paths.push(path.to_path_buf());
+                        }
                     }
                 }
             }
+        } else if metadata.is_file() {
+            log_paths.push(input_path.clone());
+        } else {
+            return Err(format!("路径 {} 既不是文件也不是目录", input_path.display()));
         }
+    }
 
-        if log_paths.is_empty() {
-            return Err(format!(
-                "目录 {} 中未找到任何 .log 文件",
-                cli.path.display()
-            ));
-        }
-    } else if metadata.is_file() {
-        log_paths.push(cli.path.clone());
-    } else {
-        return Err(format!("路径 {} 既不是文件也不是目录", cli.path.display()));
+    if log_paths.is_empty() {
+        return Err("未找到任何 .log 文件".to_string());
     }
 
     let total = log_paths.len();
@@ -134,15 +133,31 @@ fn run(cli: Cli) -> Result<(), String> {
 
     eprintln!();
 
-    let mut logs = shared_logs
+    let logs_raw = shared_logs
         .lock()
         .map_err(|_| "无法获取分析结果".to_string())
         .map(|mut guard| std::mem::take(&mut *guard))?;
 
     // 如果未开启 --show-100，则在文件列表中隐藏 OPS 总分为 100 的日志
-    if !show_100 {
-        logs.retain(|entry| !is_ops_full_score(&entry.response));
-    }
+    // 但如果全部日志都是满分，则回退为显示全部日志，避免出现“没有可显示的日志”
+    let logs = if show_100 {
+        logs_raw
+    } else {
+        // 先过滤出非满分日志
+        let mut filtered = Vec::new();
+        let mut full = Vec::new();
+        for entry in logs_raw.into_iter() {
+            if !is_ops_full_score(&entry.response) {
+                filtered.push(entry);
+            } else {
+                full.push(entry);
+            }
+        }
+
+        // 如果过滤后为空，说明全部都是满分，退回显示全部日志
+        if filtered.is_empty() { filtered = full; }
+        filtered
+    };
 
     render_ui(logs, show_100)?;
 
