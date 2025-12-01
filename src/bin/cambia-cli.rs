@@ -12,6 +12,7 @@ use std::time::Duration;
 use clap::Parser;
 
 use cambia_core::evaluate::{EvaluationUnitScope, EvaluatorType};
+use cambia_core::integrity::Integrity;
 use cambia_core::handler::parse_log_bytes;
 use cambia_core::response::CambiaResponse;
 use ratatui::backend::CrosstermBackend;
@@ -138,8 +139,8 @@ fn run(cli: Cli) -> Result<(), String> {
         .map_err(|_| "无法获取分析结果".to_string())
         .map(|mut guard| std::mem::take(&mut *guard))?;
 
-    // 如果未开启 --show-100，则在文件列表中隐藏 OPS 总分为 100 的日志
-    // 但如果全部日志都是满分，则回退为显示全部日志，避免出现“没有可显示的日志”
+    // 如果未开启 --show-100，则在文件列表中隐藏“OPS 总分为 100 且校验完整”的日志
+    // 但如果全部日志都是满分/校验正常，则回退为显示全部日志，避免出现“没有可显示的日志”
     let logs = if show_100 {
         logs_raw
     } else {
@@ -147,7 +148,8 @@ fn run(cli: Cli) -> Result<(), String> {
         let mut filtered = Vec::new();
         let mut full = Vec::new();
         for entry in logs_raw.into_iter() {
-            if !is_ops_full_score(&entry.response) {
+            // 只要 OPS 不是 100，或者校验出现异常（Integrity != Match），就认为有问题，需要显示
+            if !is_ops_full_score(&entry.response) || has_bad_integrity(&entry.response) {
                 filtered.push(entry);
             } else {
                 full.push(entry);
@@ -416,7 +418,7 @@ fn render_score_table(frame: &mut Frame<'_>, area: Rect, parsed: &CambiaResponse
 fn render_details(frame: &mut Frame<'_>, area: Rect, parsed: &CambiaResponse, show_100: bool) {
     let detail_lines = build_detail_lines(parsed, show_100);
     let paragraph = Paragraph::new(detail_lines)
-        .block(Block::default().title("详细扣分").borders(Borders::ALL))
+        .block(Block::default().title("详细").borders(Borders::ALL))
         .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
@@ -424,6 +426,8 @@ fn render_details(frame: &mut Frame<'_>, area: Rect, parsed: &CambiaResponse, sh
 
 fn build_detail_lines(parsed: &CambiaResponse, show_100: bool) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
+
+    let parsed_logs = &parsed.parsed.parsed_logs;
 
     for evaluation in &parsed.evaluation_combined {
         lines.push(Line::styled(
@@ -437,8 +441,29 @@ fn build_detail_lines(parsed: &CambiaResponse, show_100: bool) -> Vec<Line<'stat
         ));
 
         for (idx, eval) in evaluation.evaluations.iter().enumerate() {
+            let (drive_model, checksum_status) = if let Some(plog) = parsed_logs.get(idx) {
+                let drive = plog.drive.clone();
+                let checksum = match plog.checksum.integrity {
+                    Integrity::Match => "匹配",
+                    Integrity::Mismatch => "不匹配",
+                    Integrity::Unknown => "未知",
+                };
+                (drive, checksum.to_string())
+            } else {
+                ("未知".to_string(), "未知".to_string())
+            };
+
+            // 先显示驱动与校验信息
+            lines.push(Line::from(format!(
+                "  Log #{:<3} 驱动: {} | 校验: {}",
+                idx + 1,
+                drive_model,
+                checksum_status
+            )));
+
+            // 下一行再显示得分
             lines.push(Line::styled(
-                format!("  Log #{:<3} Score: {}", idx + 1, eval.score),
+                format!("    Score: {}", eval.score),
                 Style::default().fg(Color::Cyan),
             ));
 
@@ -549,6 +574,14 @@ fn is_ops_full_score(resp: &CambiaResponse) -> bool {
         .map(|e| e.combined_score.trim() == "100")
         .unwrap_or(false)
 }
+
+    // 是否存在校验异常：任意一个日志的 checksum.integrity 不是 Match
+    fn has_bad_integrity(resp: &CambiaResponse) -> bool {
+        resp.parsed
+        .parsed_logs
+        .iter()
+        .any(|plog| plog.checksum.integrity != Integrity::Match)
+    }
 
 fn save_rip_log(root_path: &Path, id: &[u8], log_raw: &[u8]) -> Result<(), String> {
     fs::create_dir_all(root_path)
