@@ -48,7 +48,7 @@ struct Cli {
     #[arg(long, default_value = "info")]
     tracing: String,
 
-    /// 显示 OPS 扣分为 100 的条目
+    /// 显示 OPS 得分为 100 的记录（默认会隐藏满分项）
     #[arg(long = "show-100")]
     show_100: bool,
 }
@@ -103,7 +103,7 @@ fn run(cli: Cli) -> Result<(), String> {
     let counter_worker = Arc::clone(&counter);
     let logs_worker = Arc::clone(&shared_logs);
 
-    // 多线程分析日志
+    // 并行解析日志以加速处理
     let handle = thread::spawn(move || {
         log_paths.into_par_iter().for_each(|path| {
             match analyze_single_log(path, &save_logs) {
@@ -139,16 +139,15 @@ fn run(cli: Cli) -> Result<(), String> {
         .map_err(|_| "无法获取分析结果".to_string())
         .map(|mut guard| std::mem::take(&mut *guard))?;
 
-    // 如果未开启 --show-100，则在文件列表中隐藏“OPS 总分为 100 且校验完整”的日志
-    // 但如果全部日志都是满分/校验正常，则回退为显示全部日志，避免出现“没有可显示的日志”
+    // 默认隐藏 OPS 满分且校验通过的日志；如全部满分则回退显示全部，避免空列表
     let logs = if show_100 {
         logs_raw
     } else {
-        // 先过滤出非满分日志
+        // 先挑出需要展示的非满分日志
         let mut filtered = Vec::new();
         let mut full = Vec::new();
         for entry in logs_raw.into_iter() {
-            // 只要 OPS 不是 100，或者校验出现异常（Integrity != Match），就认为有问题，需要显示
+            // 出现 OPS 未满分或校验异常（Integrity != Match）就视为有问题，需要展示
             if !is_ops_full_score(&entry.response) || has_bad_integrity(&entry.response) {
                 filtered.push(entry);
             } else {
@@ -156,7 +155,7 @@ fn run(cli: Cli) -> Result<(), String> {
             }
         }
 
-        // 如果过滤后为空，说明全部都是满分，退回显示全部日志
+        // 若过滤后为空，说明全是满分；回退显示全部
         if filtered.is_empty() { filtered = full; }
         filtered
     };
@@ -453,7 +452,7 @@ fn build_detail_lines(parsed: &CambiaResponse, show_100: bool) -> Vec<Line<'stat
                 ("未知".to_string(), "未知".to_string())
             };
 
-            // 先显示驱动与校验信息
+            // 先输出驱动型号和校验结果
             lines.push(Line::from(format!(
                 "  Log #{:<3} 驱动: {} | 校验: {}",
                 idx + 1,
@@ -461,7 +460,7 @@ fn build_detail_lines(parsed: &CambiaResponse, show_100: bool) -> Vec<Line<'stat
                 checksum_status
             )));
 
-            // 下一行再显示得分
+            // 下一行输出得分
             lines.push(Line::styled(
                 format!("    Score: {}", eval.score),
                 Style::default().fg(Color::Cyan),
@@ -575,7 +574,7 @@ fn is_ops_full_score(resp: &CambiaResponse) -> bool {
         .unwrap_or(false)
 }
 
-    // 是否存在校验异常：任意一个日志的 checksum.integrity 不是 Match
+// 检查是否有校验异常：任一 checksum.integrity 不是 Match 即为 true
     fn has_bad_integrity(resp: &CambiaResponse) -> bool {
         resp.parsed
         .parsed_logs
