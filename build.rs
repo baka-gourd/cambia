@@ -7,20 +7,26 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let rc_file = manifest_dir.join("build/windows/cambia-cli.rc");
-    let res_file = out_dir.join("cambia-cli.res");
+    let res_file = out_dir.join("cambia.res");
 
     println!("cargo:rerun-if-changed={}", rc_file.display());
     println!(
         "cargo:rerun-if-changed={}",
-        manifest_dir.join("build/windows/cambia-cli.exe.manifest").display()
+        manifest_dir
+            .join("build/windows/cambia-cli.exe.manifest")
+            .display()
     );
     println!(
         "cargo:rerun-if-changed={}",
-        manifest_dir.join("build/windows/assets/cambia.ico").display()
+        manifest_dir
+            .join("build/windows/assets/cambia.ico")
+            .display()
     );
 
     let rc = find_tool("rc.exe").unwrap_or_else(|| {
-        panic!("rc.exe was not found. Install the Windows SDK or run from a Developer Command Prompt.")
+        panic!(
+            "rc.exe was not found. Install the Windows SDK or run from a Developer Command Prompt."
+        )
     });
 
     let status = Command::new(&rc)
@@ -36,6 +42,7 @@ fn main() {
     }
 
     println!("cargo:rustc-link-arg-bin=cambia-cli={}", res_file.display());
+    println!("cargo:rustc-link-arg-bin=cambia-gui={}", res_file.display());
 }
 
 #[cfg(not(target_os = "windows"))]

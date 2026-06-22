@@ -21,6 +21,7 @@ server = [
 ]
 experimental_rippers = ["cambia-core/experimental_rippers"]
 experimental_evaluators = ["cambia-core/experimental_evaluators"]
+gui_profiler = []
 
 [dependencies]
 cambia-core = { path = "cambia-core" }
@@ -44,6 +45,15 @@ axum-client-ip = { version = "0.6.0", optional = true }
 ratatui = { version = "0.29.0", features = ["all-widgets"] }
 walkdir = "2.5.0"
 rayon = "1.10.0"
+winio = { version = "0.12.0-rc.5", default-features = false, features = ["win32", "win32-dark-mode"] }
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [profile.release]
 panic = "abort"
