@@ -5,29 +5,42 @@ edition = "2021"
 
 [features]
 default = ["server"]
-server = []
+server = [
+    "dep:axum",
+    "dep:axum-client-ip",
+    "dep:axum-extra",
+    "dep:axum-msgpack",
+    "dep:figlet-rs",
+    "dep:futures",
+    "dep:mime_guess",
+    "dep:rmp-serde",
+    "dep:rust-embed",
+    "dep:serde",
+    "dep:tokio",
+    "dep:tower-http",
+]
 experimental_rippers = ["cambia-core/experimental_rippers"]
 experimental_evaluators = ["cambia-core/experimental_evaluators"]
 
 [dependencies]
 cambia-core = { path = "cambia-core" }
-mime_guess = "2.0.5"
+mime_guess = { version = "2.0.5", optional = true }
 tracing-subscriber = "0.3.18"
-figlet-rs = "0.1.5"
+figlet-rs = { version = "0.1.5", optional = true }
 tracing = "0.1.40"
 hex = "0.4.3"
-tower-http = { version = "0.5.2", features = ["compression-full", "cors", "decompression-full", "trace"] }
-futures = "0.3.30"
-serde = { version = "1.0.210", features = ["derive"] }
+tower-http = { version = "0.5.2", features = ["compression-full", "cors", "decompression-full", "trace"], optional = true }
+futures = { version = "0.3.30", optional = true }
+serde = { version = "1.0.210", features = ["derive"], optional = true }
 serde_json = "1.0.128"
-rmp-serde = "1.1.1"
-tokio = { version = "1.40.0", features = ["full"] }
+rmp-serde = { version = "1.1.1", optional = true }
+tokio = { version = "1.40.0", features = ["full"], optional = true }
 clap = { version = "4.5.17", features = ["env", "derive"] }
-axum = { version = "0.7.5", features = ["ws"] }
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
-axum-msgpack = "0.4.0"
-rust-embed = { version = "8.5.0", features = ["axum", "debug-embed", "compression", "include-exclude"] }
-axum-client-ip = "0.6.0"
+axum = { version = "0.7.5", features = ["ws"], optional = true }
+axum-extra = { version = "0.9.3", features = ["typed-header"], optional = true }
+axum-msgpack = { version = "0.4.0", optional = true }
+rust-embed = { version = "8.5.0", features = ["axum", "debug-embed", "compression", "include-exclude"], optional = true }
+axum-client-ip = { version = "0.6.0", optional = true }
 ratatui = { version = "0.29.0", features = ["all-widgets"] }
 walkdir = "2.5.0"
 rayon = "1.10.0"
