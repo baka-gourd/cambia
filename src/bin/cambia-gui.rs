@@ -32,8 +32,8 @@ use winio::prelude::*;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateFontIndirectW, DeleteObject, GetBkColor, GetTextColor, SetTextColor, FW_BOLD, HDC,
-    HFONT, HGDIOBJ, LOGFONTW,
+    CreateFontIndirectW, DeleteObject, GetBkColor, GetTextColor, SetTextColor, FW_BOLD, HDC, HFONT,
+    HGDIOBJ, LOGFONTW,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Controls::SetScrollInfo;
@@ -48,11 +48,10 @@ use windows_sys::Win32::UI::Shell::{
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallWindowProcW, DefWindowProcW, GetScrollInfo, SendMessageW, SetWindowLongPtrW,
-    SetWindowPos, GWLP_WNDPROC, NONCLIENTMETRICSW, SB_HORZ, SB_VERT, SCROLLINFO, SIF_ALL,
-    SIF_POS, SM_CXVSCROLL, SM_CYHSCROLL, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE,
-    SWP_NOSIZE, SWP_NOZORDER, WM_CTLCOLORSTATIC, WM_DROPFILES, WM_HSCROLL,
-    WM_MOUSEHWHEEL, WM_MOUSEWHEEL, WM_SETFONT, WM_VSCROLL, WNDPROC,
+    CallWindowProcW, DefWindowProcW, SendMessageW, SetWindowLongPtrW, SetWindowPos, GWLP_WNDPROC,
+    LB_ERR, LB_GETCURSEL, NONCLIENTMETRICSW, SB_HORZ, SB_VERT, SCROLLINFO, SIF_POS, SM_CXVSCROLL,
+    SM_CYHSCROLL, SPI_GETNONCLIENTMETRICS, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER,
+    WM_CTLCOLORSTATIC, WM_DROPFILES, WM_SETFONT, WNDPROC,
 };
 
 const EMPTY_TEXT: &str = "未加载日志。选择 .log 文件或文件夹，或将 .log / 文件夹拖入窗口。";
@@ -64,6 +63,8 @@ const OPEN_BUTTON_GAP: f64 = 10.0;
 const SCROLLBAR_PAD_EXTRA: f64 = 16.0;
 const OVERVIEW_ROW_COUNT: usize = 7;
 const LEFT_TEXT_CHARS: usize = 44;
+#[cfg(target_os = "windows")]
+const APP_USER_MODEL_ID: &str = "Cambia.Cambia";
 
 fn main() -> winio::Result<()> {
     let paths: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
@@ -75,6 +76,9 @@ pub fn run_from_args(args: &[String]) -> winio::Result<()> {
 }
 
 pub fn run_from_paths(paths: Vec<PathBuf>) -> winio::Result<()> {
+    #[cfg(target_os = "windows")]
+    let _ = set_process_app_user_model_id(APP_USER_MODEL_ID);
+
     App::builder()
         .name("Cambia")
         .build()?
@@ -196,7 +200,9 @@ macro_rules! profile_time {
 
 #[cfg(not(feature = "gui_profiler"))]
 macro_rules! profile_time {
-    ($slot:expr, $expr:expr) => {{ $expr }};
+    ($slot:expr, $expr:expr) => {{
+        $expr
+    }};
 }
 
 struct DetailRow {
@@ -325,14 +331,19 @@ impl Component for MainModel {
         }
 
         window.set_icon_by_id(101).ok();
+        #[cfg(target_os = "windows")]
+        let h = window.as_window().as_win32();
+        #[cfg(target_os = "windows")]
+        let _ = set_window_icons(h, 101);
+        #[cfg(target_os = "windows")]
+        let _ = set_window_app_user_model_properties(h);
+
         window.show()?;
 
         #[cfg(target_os = "windows")]
         install_window_handler(&window, sender.clone());
         #[cfg(target_os = "windows")]
         install_color_parent_handler(&details_scroll);
-        #[cfg(target_os = "windows")]
-        install_scroll_position_handler(&details_scroll);
 
         let mut model = Self {
             window,
@@ -383,7 +394,6 @@ impl Component for MainModel {
             model.start_load(init_paths, sender.clone());
         }
         model.rebuild_detail_labels().await?;
-
         Ok(model)
     }
 
@@ -526,6 +536,11 @@ impl Component for MainModel {
                 self.content_dirty = true;
                 self.detail_scroll_reset_pending = true;
                 self.rebuild_detail_labels().await?;
+
+                #[cfg(target_os = "windows")]
+                let h = self.window.as_window().as_win32();
+                #[cfg(target_os = "windows")]
+                let _ = raise_once(h);
                 Ok(true)
             }
         }
@@ -1072,9 +1087,7 @@ impl MainModel {
             label.set_loc(Point::new(x, y))?;
             let preferred = profile_time!(measure_ms, label.preferred_size()?);
             let visible_w = (width - x - DETAIL_PAD - right_pad).max(120.0);
-            let label_w = visible_w
-                .max(120.0)
-                .max(preferred.width + 12.0);
+            let label_w = visible_w.max(120.0).max(preferred.width + 12.0);
             label.set_size(Size::new(label_w, h))?;
             max_label_right = max_label_right.max(x + label_w);
             y += h;
@@ -1087,10 +1100,8 @@ impl MainModel {
                 .map(detail_row_height)
                 .sum::<f64>()
             + 4.0;
-        self.open_location_button.set_loc(Point::new(
-            DETAIL_PAD + 18.0,
-            button_y,
-        ))?;
+        self.open_location_button
+            .set_loc(Point::new(DETAIL_PAD + 18.0, button_y))?;
         self.open_location_button
             .set_size(Size::new(132.0, OPEN_BUTTON_H))?;
         let spacer_x = max_label_right.max(width - DETAIL_PAD - right_pad);
@@ -1136,11 +1147,14 @@ fn scrollbar_padding(scroll: &ScrollView) -> (f64, f64) {
     #[cfg(target_os = "windows")]
     {
         let dpi = unsafe { GetDpiForWindow(scroll.as_widget().as_win32()) };
-        let right = unsafe { GetSystemMetricsForDpi(SM_CXVSCROLL, dpi) } as f64
-            + SCROLLBAR_PAD_EXTRA;
-        let bottom = unsafe { GetSystemMetricsForDpi(SM_CYHSCROLL, dpi) } as f64
-            + SCROLLBAR_PAD_EXTRA;
-        (right.max(SCROLLBAR_PAD_EXTRA), bottom.max(SCROLLBAR_PAD_EXTRA))
+        let right =
+            unsafe { GetSystemMetricsForDpi(SM_CXVSCROLL, dpi) } as f64 + SCROLLBAR_PAD_EXTRA;
+        let bottom =
+            unsafe { GetSystemMetricsForDpi(SM_CYHSCROLL, dpi) } as f64 + SCROLLBAR_PAD_EXTRA;
+        (
+            right.max(SCROLLBAR_PAD_EXTRA),
+            bottom.max(SCROLLBAR_PAD_EXTRA),
+        )
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -1299,7 +1313,20 @@ fn profile_timestamp_ms() -> u128 {
 }
 
 fn selected_index(list: &ListBox, len: usize) -> Option<usize> {
-    (0..len).find(|&index| list.is_selected(index).unwrap_or(false))
+    #[cfg(target_os = "windows")]
+    {
+        let index = unsafe { SendMessageW(list.as_widget().as_win32(), LB_GETCURSEL, 0, 0) };
+        if index == LB_ERR as isize {
+            None
+        } else {
+            let index = index as usize;
+            (index < len).then_some(index)
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (0..len).find(|&index| list.is_selected(index).unwrap_or(false))
+    }
 }
 
 fn collect_log_paths(inputs: &[PathBuf]) -> std::result::Result<Vec<PathBuf>, String> {
@@ -2321,18 +2348,9 @@ struct LabelColor {
 }
 
 #[cfg(target_os = "windows")]
-#[derive(Clone, Copy)]
-struct ScrollRegistration {
-    hwnd: isize,
-    view: isize,
-}
-
-#[cfg(target_os = "windows")]
 static WINDOW_REGISTRATIONS: OnceLock<Mutex<Vec<WindowRegistration>>> = OnceLock::new();
 #[cfg(target_os = "windows")]
 static LABEL_COLORS: OnceLock<Mutex<Vec<LabelColor>>> = OnceLock::new();
-#[cfg(target_os = "windows")]
-static SCROLL_REGISTRATIONS: OnceLock<Mutex<Vec<ScrollRegistration>>> = OnceLock::new();
 
 #[cfg(target_os = "windows")]
 fn install_window_handler(window: &Window, sender: ComponentSender<MainModel>) {
@@ -2346,18 +2364,6 @@ fn install_window_handler(window: &Window, sender: ComponentSender<MainModel>) {
 #[cfg(target_os = "windows")]
 fn install_color_parent_handler(scroll: &ScrollView) {
     register_window_proc(scroll.as_container().as_win32() as isize, None);
-}
-
-#[cfg(target_os = "windows")]
-fn install_scroll_position_handler(scroll: &ScrollView) {
-    let hwnd = scroll.as_widget().as_win32() as isize;
-    let view = scroll.as_container().as_win32() as isize;
-    register_window_proc(hwnd, None);
-    SCROLL_REGISTRATIONS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap()
-        .push(ScrollRegistration { hwnd, view });
 }
 
 #[cfg(target_os = "windows")]
@@ -2404,6 +2410,223 @@ fn clear_colored_labels() {
     }
 }
 
+#[cfg(windows)]
+fn set_process_app_user_model_id(id: &str) -> Result<()> {
+    use windows_sys::Win32::Foundation::S_OK;
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    let wide = id.encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+    let hr = unsafe { SetCurrentProcessExplicitAppUserModelID(wide.as_ptr()) };
+    if hr == S_OK {
+        Ok(())
+    } else {
+        Err(Error::empty())
+    }
+}
+
+#[cfg(windows)]
+fn set_window_app_user_model_properties(hwnd: HWND) -> Result<()> {
+    use std::ffi::c_void;
+    use windows_sys::core::{GUID, HRESULT};
+    use windows_sys::Win32::Foundation::{PROPERTYKEY, S_OK};
+    use windows_sys::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows_sys::Win32::System::Variant::VT_LPWSTR;
+    use windows_sys::Win32::UI::Shell::PropertiesSystem::SHGetPropertyStoreForWindow;
+
+    const IID_IPROPERTY_STORE: GUID = GUID::from_u128(0x886d8eeb_8cf2_4446_8d02_cdba1dbdcf99);
+    const APP_USER_MODEL_PROPERTY_GUID: GUID =
+        GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3);
+    const PKEY_APPUSERMODEL_RELAUNCH_COMMAND: PROPERTYKEY = PROPERTYKEY {
+        fmtid: APP_USER_MODEL_PROPERTY_GUID,
+        pid: 2,
+    };
+    const PKEY_APPUSERMODEL_RELAUNCH_ICON_RESOURCE: PROPERTYKEY = PROPERTYKEY {
+        fmtid: APP_USER_MODEL_PROPERTY_GUID,
+        pid: 3,
+    };
+    const PKEY_APPUSERMODEL_RELAUNCH_DISPLAY_NAME_RESOURCE: PROPERTYKEY = PROPERTYKEY {
+        fmtid: APP_USER_MODEL_PROPERTY_GUID,
+        pid: 4,
+    };
+    const PKEY_APPUSERMODEL_ID: PROPERTYKEY = PROPERTYKEY {
+        fmtid: APP_USER_MODEL_PROPERTY_GUID,
+        pid: 5,
+    };
+
+    #[repr(C)]
+    struct IPropertyStore {
+        vtbl: *const IPropertyStoreVtbl,
+    }
+
+    #[repr(C)]
+    struct IPropertyStoreVtbl {
+        query_interface: unsafe extern "system" fn(
+            *mut IPropertyStore,
+            *const GUID,
+            *mut *mut c_void,
+        ) -> HRESULT,
+        add_ref: unsafe extern "system" fn(*mut IPropertyStore) -> u32,
+        release: unsafe extern "system" fn(*mut IPropertyStore) -> u32,
+        get_count: unsafe extern "system" fn(*mut IPropertyStore, *mut u32) -> HRESULT,
+        get_at: unsafe extern "system" fn(*mut IPropertyStore, u32, *mut PROPERTYKEY) -> HRESULT,
+        get_value:
+            unsafe extern "system" fn(*mut IPropertyStore, *const PROPERTYKEY, *mut PROPVARIANT)
+                -> HRESULT,
+        set_value:
+            unsafe extern "system" fn(*mut IPropertyStore, *const PROPERTYKEY, *const PROPVARIANT)
+                -> HRESULT,
+        commit: unsafe extern "system" fn(*mut IPropertyStore) -> HRESULT,
+    }
+
+    fn set_string_property(
+        store: *mut IPropertyStore,
+        key: &PROPERTYKEY,
+        value: &str,
+    ) -> Result<()> {
+        let mut wide = value.encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+        let mut prop = PROPVARIANT::default();
+        prop.Anonymous.Anonymous.vt = VT_LPWSTR;
+        prop.Anonymous.Anonymous.Anonymous.pwszVal = wide.as_mut_ptr();
+
+        let hr = unsafe { ((*(*store).vtbl).set_value)(store, key, &prop) };
+        if hr >= 0 {
+            Ok(())
+        } else {
+            Err(Error::empty())
+        }
+    }
+
+    let exe = std::env::current_exe().map_err(|_| Error::empty())?;
+    let exe_path = exe.to_string_lossy();
+    let relaunch_command = quote_windows_command_argument(&exe_path);
+    let icon_resource = format!("{exe_path},-101");
+
+    let mut store = std::ptr::null_mut::<c_void>();
+    let hr = unsafe { SHGetPropertyStoreForWindow(hwnd, &IID_IPROPERTY_STORE, &mut store) };
+    if hr != S_OK || store.is_null() {
+        return Err(Error::empty());
+    }
+
+    let store = store.cast::<IPropertyStore>();
+    let result = (|| {
+        set_string_property(store, &PKEY_APPUSERMODEL_RELAUNCH_COMMAND, &relaunch_command)?;
+        set_string_property(
+            store,
+            &PKEY_APPUSERMODEL_RELAUNCH_DISPLAY_NAME_RESOURCE,
+            "Cambia",
+        )?;
+        set_string_property(
+            store,
+            &PKEY_APPUSERMODEL_RELAUNCH_ICON_RESOURCE,
+            &icon_resource,
+        )?;
+        set_string_property(store, &PKEY_APPUSERMODEL_ID, APP_USER_MODEL_ID)?;
+
+        let hr = unsafe { ((*(*store).vtbl).commit)(store) };
+        if hr >= 0 {
+            Ok(())
+        } else {
+            Err(Error::empty())
+        }
+    })();
+
+    unsafe {
+        ((*(*store).vtbl).release)(store);
+    }
+
+    result
+}
+
+#[cfg(windows)]
+fn quote_windows_command_argument(arg: &str) -> String {
+    let mut result = String::from("\"");
+    let mut backslashes = 0;
+
+    for ch in arg.chars() {
+        if ch == '\\' {
+            backslashes += 1;
+            continue;
+        }
+
+        if ch == '"' {
+            result.extend(std::iter::repeat('\\').take(backslashes * 2 + 1));
+            result.push('"');
+            backslashes = 0;
+            continue;
+        }
+
+        result.extend(std::iter::repeat('\\').take(backslashes));
+        backslashes = 0;
+        result.push(ch);
+    }
+
+    result.extend(std::iter::repeat('\\').take(backslashes * 2));
+    result.push('"');
+    result
+}
+
+#[cfg(windows)]
+fn set_window_icons(hwnd: windows_sys::Win32::Foundation::HWND, icon_id: u16) -> Result<()> {
+    use std::ptr::null;
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON,
+        LR_DEFAULTCOLOR, LR_SHARED, SM_CXICON, SM_CXSMICON, SM_CYICON, SM_CYSMICON, WM_SETICON,
+    };
+
+    unsafe {
+        let hinst = GetModuleHandleW(null());
+
+        let big = LoadImageW(
+            hinst,
+            icon_id as _,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXICON),
+            GetSystemMetrics(SM_CYICON),
+            LR_DEFAULTCOLOR | LR_SHARED,
+        );
+
+        let small = LoadImageW(
+            hinst,
+            icon_id as _,
+            IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON),
+            GetSystemMetrics(SM_CYSMICON),
+            LR_DEFAULTCOLOR | LR_SHARED,
+        );
+
+        if big.is_null() || small.is_null() {
+            panic!("cannot set icon");
+        }
+
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG as _, big as _);
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL as _, small as _);
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn raise_once(hwnd: windows_sys::Win32::Foundation::HWND) -> Result<()> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
+    };
+
+    let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW;
+
+    unsafe {
+        if SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags) == 0 {
+            panic!("cannot to top")
+        }
+
+        if SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags) == 0 {
+            panic!("cannot reset")
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
@@ -2441,62 +2664,7 @@ unsafe extern "system" fn window_proc(
         }
     }
 
-    if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
-        if let Some(scroll) = find_scroll_registration(hwnd) {
-            return handle_scroll_wheel(scroll, msg, wparam, lparam);
-        }
-    }
-
-    if msg == WM_HSCROLL || msg == WM_VSCROLL {
-        if let Some(scroll) = find_scroll_registration(hwnd) {
-            let result = call_original_window_proc(hwnd, msg, wparam, lparam);
-            preserve_scroll_axes(scroll);
-            return result;
-        }
-    }
-
     call_original_window_proc(hwnd, msg, wparam, lparam)
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn handle_scroll_wheel(
-    scroll: ScrollRegistration,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-) -> LRESULT {
-    let hwnd = scroll.hwnd as HWND;
-    let bar = if msg == WM_MOUSEHWHEEL { SB_HORZ } else { SB_VERT };
-    if update_wheel_scroll_pos(hwnd, bar, wparam) {
-        preserve_scroll_axes(scroll);
-        0
-    } else {
-        let result = call_original_window_proc(hwnd, msg, wparam, lparam);
-        preserve_scroll_axes(scroll);
-        result
-    }
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn update_wheel_scroll_pos(hwnd: HWND, bar: i32, wparam: WPARAM) -> bool {
-    let mut info = SCROLLINFO {
-        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
-        fMask: SIF_ALL,
-        nMin: 0,
-        nMax: 0,
-        nPage: 0,
-        nPos: 0,
-        nTrackPos: 0,
-    };
-    if GetScrollInfo(hwnd, bar, &mut info) == 0 {
-        return false;
-    }
-
-    let delta = ((wparam >> 16) & 0xffff) as i16 as i32;
-    info.nPos += -delta;
-    info.fMask = SIF_POS;
-    SetScrollInfo(hwnd, bar, &info, 1);
-    GetScrollInfo(hwnd, bar, &mut info) != 0
 }
 
 #[cfg(target_os = "windows")]
@@ -2523,52 +2691,6 @@ fn find_window_registration(hwnd: HWND) -> Option<WindowRegistration> {
                 .cloned()
         })
     })
-}
-
-#[cfg(target_os = "windows")]
-fn find_scroll_registration(hwnd: HWND) -> Option<ScrollRegistration> {
-    SCROLL_REGISTRATIONS.get().and_then(|registrations| {
-        registrations.lock().ok().and_then(|items| {
-            items
-                .iter()
-                .find(|item| item.hwnd == hwnd as isize)
-                .copied()
-        })
-    })
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn preserve_scroll_axes(scroll: ScrollRegistration) {
-    let hwnd = scroll.hwnd as HWND;
-    let x = scroll_pos(hwnd, SB_HORZ).unwrap_or(0);
-    let y = scroll_pos(hwnd, SB_VERT).unwrap_or(0);
-    SetWindowPos(
-        scroll.view as HWND,
-        std::ptr::null_mut(),
-        -x,
-        -y,
-        0,
-        0,
-        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-    );
-}
-
-#[cfg(target_os = "windows")]
-unsafe fn scroll_pos(hwnd: HWND, bar: i32) -> Option<i32> {
-    let mut info = SCROLLINFO {
-        cbSize: std::mem::size_of::<SCROLLINFO>() as u32,
-        fMask: SIF_POS,
-        nMin: 0,
-        nMax: 0,
-        nPage: 0,
-        nPos: 0,
-        nTrackPos: 0,
-    };
-    if GetScrollInfo(hwnd, bar, &mut info) == 0 {
-        None
-    } else {
-        Some(info.nPos)
-    }
 }
 
 #[cfg(target_os = "windows")]
