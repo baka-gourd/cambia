@@ -566,8 +566,10 @@ impl Component for MainModel {
         } else {
             pad
         };
-        let detail_w = width - detail_x - pad;
         let left_label_w = width - 2.0 * pad;
+        let loading_h = if self.loading { ROW_H + 6.0 + 18.0 } else { 0.0 };
+        let loading_gap = if self.loading { 10.0 } else { 0.0 };
+        let reserved_bottom_h = loading_h + loading_gap;
 
         self.file_label
             .set_loc(Point::new(left_x, detail_header_y))?;
@@ -583,14 +585,15 @@ impl Component for MainModel {
             .set_loc(Point::new(left_x, detail_header_y + (ROW_H + 2.0) * 3.0))?;
         self.encoding_label
             .set_size(Size::new(left_label_w, ROW_H))?;
+        let loading_y = height - pad - loading_h;
         self.loading_label
-            .set_loc(Point::new(detail_x, detail_header_y))?;
+            .set_loc(Point::new(pad, loading_y))?;
         self.loading_label
-            .set_size(Size::new(detail_w.max(260.0), ROW_H))?;
+            .set_size(Size::new((width - 2.0 * pad).max(260.0), ROW_H))?;
         self.loading_progress
-            .set_loc(Point::new(detail_x, detail_header_y + ROW_H + 6.0))?;
+            .set_loc(Point::new(pad, loading_y + ROW_H + 6.0))?;
         self.loading_progress
-            .set_size(Size::new(detail_w.max(260.0), 18.0))?;
+            .set_size(Size::new((width - 2.0 * pad).max(260.0), 18.0))?;
         self.loading_label.set_visible(self.loading)?;
         self.loading_progress.set_visible(self.loading)?;
         let has_entry = self.current_entry().is_some();
@@ -616,7 +619,10 @@ impl Component for MainModel {
         if self.list_visible {
             self.list.set_loc(Point::new(left_x, body_y))?;
             self.list
-                .set_size(Size::new(list_w, (height - body_y - pad).max(120.0)))?;
+                .set_size(Size::new(
+                    list_w,
+                    (height - body_y - pad - reserved_bottom_h).max(120.0),
+                ))?;
         } else {
             self.list.set_visible(false)?;
         }
@@ -628,7 +634,7 @@ impl Component for MainModel {
         } else {
             0.0
         };
-        let tracks_y = height - pad - tracks_h;
+        let tracks_y = height - pad - reserved_bottom_h - tracks_h;
         let body_h = (tracks_y - body_y - pad).max(120.0);
 
         self.internal_logs.set_visible(false)?;
