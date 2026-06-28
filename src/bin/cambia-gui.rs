@@ -63,8 +63,27 @@ const OPEN_BUTTON_GAP: f64 = 10.0;
 const SCROLLBAR_PAD_EXTRA: f64 = 16.0;
 const OVERVIEW_ROW_COUNT: usize = 7;
 const LEFT_TEXT_CHARS: usize = 44;
-#[cfg(target_os = "windows")]
-const APP_USER_MODEL_ID: &str = "Cambia.Cambia";
+
+#[derive(Clone, Debug)]
+pub struct GuiOptions {
+    pub app_name: String,
+    #[cfg(target_os = "windows")]
+    pub app_user_model_id: Option<String>,
+    #[cfg(target_os = "windows")]
+    pub icon_resource_id: Option<u16>,
+}
+
+impl Default for GuiOptions {
+    fn default() -> Self {
+        Self {
+            app_name: "Cambia".to_string(),
+            #[cfg(target_os = "windows")]
+            app_user_model_id: Some("Cambia.Cambia".to_string()),
+            #[cfg(target_os = "windows")]
+            icon_resource_id: Some(101),
+        }
+    }
+}
 
 fn main() -> winio::Result<()> {
     let paths: Vec<PathBuf> = std::env::args_os().skip(1).map(PathBuf::from).collect();
@@ -75,14 +94,25 @@ pub fn run_from_args(args: &[String]) -> winio::Result<()> {
     run_from_paths(args.iter().map(PathBuf::from).collect())
 }
 
-pub fn run_from_paths(paths: Vec<PathBuf>) -> winio::Result<()> {
-    #[cfg(target_os = "windows")]
-    let _ = set_process_app_user_model_id(APP_USER_MODEL_ID);
+pub fn run_from_args_with_options(args: &[String], options: GuiOptions) -> winio::Result<()> {
+    run_from_paths_with_options(args.iter().map(PathBuf::from).collect(), options)
+}
 
+pub fn run_from_paths(paths: Vec<PathBuf>) -> winio::Result<()> {
+    run_from_paths_with_options(paths, GuiOptions::default())
+}
+
+pub fn run_from_paths_with_options(paths: Vec<PathBuf>, options: GuiOptions) -> winio::Result<()> {
+    #[cfg(target_os = "windows")]
+    if let Some(app_user_model_id) = options.app_user_model_id.as_deref() {
+        let _ = set_process_app_user_model_id(app_user_model_id);
+    }
+
+    let app_name = options.app_name.clone();
     App::builder()
-        .name("Cambia")
+        .name(app_name.as_str())
         .build()?
-        .block_on(MainModel::run(paths))
+        .block_on(MainModel::run((paths, options)))
 }
 
 struct LogEntry {
@@ -290,13 +320,14 @@ enum MainMessage {
 impl Component for MainModel {
     type Error = Error;
     type Event = ();
-    type Init<'a> = Vec<PathBuf>;
+    type Init<'a> = (Vec<PathBuf>, GuiOptions);
     type Message = MainMessage;
 
     async fn init(
-        init_paths: Self::Init<'_>,
+        init_options: Self::Init<'_>,
         sender: &ComponentSender<Self>,
     ) -> winio::Result<Self> {
+        let (init_paths, options) = init_options;
         init! {
             window: Window = (()) => {
                 text: "Cambia",
@@ -330,13 +361,26 @@ impl Component for MainModel {
             },
         }
 
-        window.set_icon_by_id(101).ok();
+        window.set_text(options.app_name.as_str())?;
+        #[cfg(target_os = "windows")]
+        if let Some(icon_resource_id) = options.icon_resource_id {
+            window.set_icon_by_id(icon_resource_id).ok();
+        }
         #[cfg(target_os = "windows")]
         let h = window.as_window().as_win32();
         #[cfg(target_os = "windows")]
-        let _ = set_window_icons(h, 101);
+        if let Some(icon_resource_id) = options.icon_resource_id {
+            let _ = set_window_icons(h, icon_resource_id);
+        }
         #[cfg(target_os = "windows")]
-        let _ = set_window_app_user_model_properties(h);
+        if let Some(app_user_model_id) = options.app_user_model_id.as_deref() {
+            let _ = set_window_app_user_model_properties(
+                h,
+                app_user_model_id,
+                options.app_name.as_str(),
+                options.icon_resource_id,
+            );
+        }
 
         window.show()?;
 
@@ -2431,7 +2475,12 @@ fn set_process_app_user_model_id(id: &str) -> Result<()> {
 }
 
 #[cfg(windows)]
-fn set_window_app_user_model_properties(hwnd: HWND) -> Result<()> {
+fn set_window_app_user_model_properties(
+    hwnd: HWND,
+    app_user_model_id: &str,
+    app_name: &str,
+    icon_resource_id: Option<u16>,
+) -> Result<()> {
     use std::ffi::c_void;
     use windows_sys::core::{GUID, HRESULT};
     use windows_sys::Win32::Foundation::{PROPERTYKEY, S_OK};
@@ -2505,7 +2554,7 @@ fn set_window_app_user_model_properties(hwnd: HWND) -> Result<()> {
     let exe = std::env::current_exe().map_err(|_| Error::empty())?;
     let exe_path = exe.to_string_lossy();
     let relaunch_command = quote_windows_command_argument(&exe_path);
-    let icon_resource = format!("{exe_path},-101");
+    let icon_resource = icon_resource_id.map(|id| format!("{exe_path},-{id}"));
 
     let mut store = std::ptr::null_mut::<c_void>();
     let hr = unsafe { SHGetPropertyStoreForWindow(hwnd, &IID_IPROPERTY_STORE, &mut store) };
@@ -2519,14 +2568,16 @@ fn set_window_app_user_model_properties(hwnd: HWND) -> Result<()> {
         set_string_property(
             store,
             &PKEY_APPUSERMODEL_RELAUNCH_DISPLAY_NAME_RESOURCE,
-            "Cambia",
+            app_name,
         )?;
-        set_string_property(
-            store,
-            &PKEY_APPUSERMODEL_RELAUNCH_ICON_RESOURCE,
-            &icon_resource,
-        )?;
-        set_string_property(store, &PKEY_APPUSERMODEL_ID, APP_USER_MODEL_ID)?;
+        if let Some(icon_resource) = icon_resource.as_deref() {
+            set_string_property(
+                store,
+                &PKEY_APPUSERMODEL_RELAUNCH_ICON_RESOURCE,
+                icon_resource,
+            )?;
+        }
+        set_string_property(store, &PKEY_APPUSERMODEL_ID, app_user_model_id)?;
 
         let hr = unsafe { ((*(*store).vtbl).commit)(store) };
         if hr >= 0 {
