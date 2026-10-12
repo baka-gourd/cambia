@@ -1,32 +1,26 @@
 [package]
 name = "cambia-core"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2021"
 
 [features]
 default = ["eac", "xld", "whipper", "ops_ev"]
-experimental_rippers = ["cueripper"]
+experimental_rippers = ["cueripper", "cyanrip", "morituri", "dbpa", "rip", "ezcd", "freac"]
 experimental_evaluators = ["cambia_ev"]
 eac = []
 xld = []
 whipper = []
 cueripper = ["eac"]
+cyanrip = []
+morituri = []
+dbpa = []
+rip = []
+ezcd = []
+freac = []
 gazelle_ev = []
 ops_ev = ["gazelle_ev"]
 red_ev = ["gazelle_ev"]
 cambia_ev = []
-
-[build-dependencies]
-codegen = "0.2.0"
-regex = "1"
-walkdir = "2"
-simple-text-decode = { path = "../simple-text-decode" }
-sha2 = "0.10.6"
-hex = "0.4.3"
-scraper = "0.20.0"
-reqwest = { version = "0.12.7", features = ["blocking"] }
-accuraterip-drive-db = { path = "../accuraterip-drive-db" }
-itertools = "0.13.0"
 
 [dependencies]
 aho-corasick = "1.1.3"

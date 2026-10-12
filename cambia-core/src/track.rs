@@ -222,19 +222,35 @@ impl TrackError {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn new_xld(r_c: u32, s_c: u32, jg_c: u32, je_c: u32, ja_c: u32, drf_c: u32, drp_c: u32, dup_c: u32, dmg_d: TrackErrorData, inc_d: TrackErrorData, m_s: bool) -> Self {
+    pub fn new_xld(read: u32, skip: u32, jitter_generic: u32, jitter_edge: u32, jitter_atom: u32, drift: u32, dropped: u32, duplicated: u32, damaged_sectors: TrackErrorData, inconsistent_err_sectors: TrackErrorData, missing_samples: bool) -> Self {
         TrackError {
-            read: TrackErrorData::new_from_count(r_c),
-            skip: TrackErrorData::new_from_count(s_c),
-            jitter_generic: TrackErrorData::new_from_count(jg_c),
-            jitter_edge: TrackErrorData::new_from_count(je_c),
-            jitter_atom: TrackErrorData::new_from_count(ja_c),
-            drift: TrackErrorData::new_from_count(drf_c),
-            dropped: TrackErrorData::new_from_count(drp_c),
-            duplicated: TrackErrorData::new_from_count(dup_c),
-            damaged_sectors: dmg_d,
-            inconsistent_err_sectors: inc_d,
-            missing_samples: TrackErrorData::new_from_bool(m_s),
+            read: TrackErrorData::new_from_count(read),
+            skip: TrackErrorData::new_from_count(skip),
+            jitter_generic: TrackErrorData::new_from_count(jitter_generic),
+            jitter_edge: TrackErrorData::new_from_count(jitter_edge),
+            jitter_atom: TrackErrorData::new_from_count(jitter_atom),
+            drift: TrackErrorData::new_from_count(drift),
+            dropped: TrackErrorData::new_from_count(dropped),
+            duplicated: TrackErrorData::new_from_count(duplicated),
+            damaged_sectors,
+            inconsistent_err_sectors,
+            missing_samples: TrackErrorData::new_from_bool(missing_samples),
+        }
+    }
+
+    pub fn new_ezcd(read: TrackErrorData, jitter_generic: TrackErrorData, damaged_sectors: TrackErrorData, inconsistent_err_sectors: TrackErrorData) -> Self {
+        TrackError {
+            read,
+            skip: TrackErrorData::default(),
+            jitter_generic,
+            jitter_edge: TrackErrorData::default(),
+            jitter_atom: TrackErrorData::default(),
+            drift: TrackErrorData::default(),
+            dropped: TrackErrorData::default(),
+            duplicated: TrackErrorData::default(),
+            damaged_sectors,
+            inconsistent_err_sectors,
+            missing_samples: TrackErrorData::default(),
         }
     }
 }

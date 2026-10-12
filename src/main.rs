@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use clap::Parser;
 #[cfg(feature = "server")]
-use figlet_rs::FIGfont;
+use figlet_rs::FIGlet;
 #[cfg(feature = "server")]
 use server::CambiaServer;
 use crate::util::parse_file;
@@ -69,7 +69,7 @@ async fn run(args: Args) {
         return
     }
 
-    let font = FIGfont::standard().unwrap();
+    let font = FIGlet::standard().unwrap();
     println!("{}", font.convert("cambia").unwrap());
     CambiaServer::new(args).start().await;
 }

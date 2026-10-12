@@ -13,7 +13,20 @@ pub mod xld_parser;
 pub mod whipper_parser;
 #[cfg(feature = "cueripper")]
 pub mod cueripper_parser;
+#[cfg(feature = "cyanrip")]
+pub mod cyanrip_parser;
+#[cfg(feature = "morituri")]
+pub mod morituri_parser;
+#[cfg(feature = "dbpa")]
+pub mod dbpa_parser;
+#[cfg(feature = "rip")]
+pub mod rip_parser;
+#[cfg(feature = "ezcd")]
+pub mod ezcd_parser;
+#[cfg(feature = "freac")]
+pub mod freac_parser;
 
+use regex::Regex;
 use serde::{Serialize, Deserialize};
 use ts_rs::TS;
 
@@ -111,4 +124,15 @@ pub trait ParserTrack: TrackExtractor {
             ar_info: self.extract_ar_info(),
         }
     }
+}
+
+pub fn split_tracks<'a>(log: &'a str, regex: &Regex) -> Vec<(u8, &'a str)> {
+    let starts: Vec<(usize, u8)> = regex.captures_iter(log)
+        .map(|captures| (captures.get(0).unwrap().start(), captures.get(1).unwrap().as_str().parse::<u8>().unwrap_or_default()))
+        .collect();
+
+    starts.iter().enumerate().map(|(idx, &(start, num))| {
+        let end = starts.get(idx + 1).map_or(log.len(), |&(next, _)| next);
+        (num, &log[start..end])
+    }).collect()
 }

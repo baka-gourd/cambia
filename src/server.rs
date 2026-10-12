@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, ops::ControlFlow};
 use std::ops::RangeInclusive;
-use axum::{async_trait, body::{Body, Bytes}, extract::{
+use axum::{body::{Body, Bytes}, extract::{
     connect_info::ConnectInfo, ws::{Message, WebSocket, WebSocketUpgrade}, FromRequestParts, Query
 }, http::{header, StatusCode, Uri}, response::{IntoResponse, Response}, routing::{get, post}, Extension, Json, Router};
 use axum_extra::{headers::UserAgent, TypedHeader};
@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 use tower_http::{cors::CorsLayer, compression::CompressionLayer};
 use futures::{sink::SinkExt, stream::StreamExt};
 use tower_http::trace::{DefaultMakeSpan, TraceLayer};
-use axum_client_ip::{InsecureClientIp, SecureClientIp, SecureClientIpSource};
+use axum_client_ip::{ClientIp, ClientIpSource};
 use cambia_core::error::CambiaError;
 use cambia_core::handler::{parse_log_bytes, translate_log_bytes};
 use cambia_core::response::CambiaResponse;
@@ -41,7 +41,6 @@ impl Format {
     }
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for Format
 where
     S: Send + Sync, {
@@ -94,10 +93,10 @@ impl CambiaServer {
             .nest("/ws", multi_upload_ws)
             .layer(Extension(self.args))
             .layer(TraceLayer::new_for_http().make_span_with(DefaultMakeSpan::default().include_headers(true)))
-            .layer(SecureClientIpSource::ConnectInfo.into_extension())
+            .layer(ClientIpSource::ConnectInfo.into_extension())
     }
 
-    async fn static_handler(uri: Uri, user_agent: Option<TypedHeader<UserAgent>>, insecure_ip: InsecureClientIp, secure_ip: SecureClientIp) -> impl IntoResponse {
+    async fn static_handler(uri: Uri, user_agent: Option<TypedHeader<UserAgent>>, client_ip: ClientIp) -> impl IntoResponse {
         let path = uri.path().trim_start_matches('/').to_string();
 
         // Avoid log spamming on asset requests
@@ -108,7 +107,7 @@ impl CambiaServer {
             } else {
                 String::from("Unknown browser")
             };
-            tracing::info!("/{path} from UserAgent({user_agent}) | {insecure_ip:?} | {secure_ip:?}");
+            tracing::info!("/{path} from UserAgent({user_agent}) | {client_ip:?}");
         }
 
         if path.is_empty() || path == INDEX_HTML {
@@ -170,7 +169,7 @@ impl CambiaServer {
                 if processed.is_break() {
                     break;
                 } else if let ControlFlow::Continue(val) = processed {
-                    if sender.send(Message::Binary(val)).await.is_err() {
+                    if sender.send(Message::Binary(val.into())).await.is_err() {
                         return cnt;
                     }
                 }
@@ -193,7 +192,7 @@ impl CambiaServer {
     fn process_message(args: &Args, msg: Message, who: SocketAddr) -> ControlFlow<(), Vec<u8>> {
         match msg {
             Message::Binary(d) => {
-                let enc: Vec<u8> = match Self::parse_ws_request(args, d) {
+                let enc: Vec<u8> = match Self::parse_ws_request(args, &d) {
                     Ok(res) => rmp_serde::encode::to_vec_named(&res).unwrap(),
                     Err(e) => rmp_serde::encode::to_vec_named(&e).unwrap(),
                 };
@@ -215,18 +214,18 @@ impl CambiaServer {
         ControlFlow::Continue(Vec::new())
     }
 
-    fn parse_ws_request(args: &Args, mut ws_body: Vec<u8>) -> Result<CambiaResponse, CambiaError> {
+    fn parse_ws_request(args: &Args, ws_body: &[u8]) -> Result<CambiaResponse, CambiaError> {
         // xxH64 is 8 bytes
         if ws_body.len() < 8 {
             return Err(CambiaError::new_anon("WS message length too small"));
         }
 
-        let log_bytes = ws_body.split_off(8);
-        let res = parse_log_bytes(ws_body, &log_bytes);
+        let (id, log_bytes) = ws_body.split_at(8);
+        let res = parse_log_bytes(id.to_vec(), log_bytes);
 
         if let Some(save_logs) = args.save_logs.clone() {
             if let Ok(ref res) = res {
-                save_rip_log(save_logs, &res.id, &log_bytes);
+                save_rip_log(save_logs, &res.id, log_bytes);
             }
         }
 

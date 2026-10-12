@@ -33,6 +33,19 @@ impl Time {
         let cs: u64 = str::parse(split[2]).unwrap();
         Time(Duration::from_secs(m * 60) + Duration::from_secs(s) + Duration::from_millis(cs * 10))
     }
+
+    pub fn from_mm_ss_ff(mm_ss_ff: &str) -> Time {
+        let parse = || -> Option<f64> {
+            let (m, rest) = mm_ss_ff.split_once(':')?;
+            let (s, f) = rest.split_once('.')?;
+            Some(m.parse::<f64>().ok()? * 60.0 + s.parse::<f64>().ok()? + f.parse::<f64>().ok()? / 75.0)
+        };
+        Time(Duration::from_secs_f64(parse().unwrap_or_default()))
+    }
+
+    pub fn from_frames(frames: u32) -> Time {
+        Time(Duration::from_secs_f64(f64::from(frames) / 75.0))
+    }
 }
 
 impl ops::Add<Time> for Time {

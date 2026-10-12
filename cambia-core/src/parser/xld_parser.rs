@@ -380,7 +380,7 @@ impl XldParserTrack {
         }
     }
 
-    fn optional_match<T: FromStr>(&self, regex: &Regex) -> Option<T> 
+    fn optional_match<T>(&self, regex: &Regex) -> Option<T>
     where
         T: FromStr,
         <T as FromStr>::Err: std::fmt::Debug, {
@@ -446,9 +446,9 @@ impl TrackExtractor for XldParserTrack {
     fn extract_errors(&self) -> TrackError {
         let captures_all = ERROR.captures_iter(&self.raw);
 
-        let (mut r_c, mut s_c, mut drf_c, mut drp_c, mut dup_c, mut dmg_c, mut inc_c) = (0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32);
-        let (mut jg_c, mut je_c, mut ja_c) = (0_u32, 0_u32, 0_u32);
-        let mut m_s = false;
+        let (mut read, mut skip, mut drift, mut dropped, mut duplicated, mut damaged_count, mut inconsistent_count) = (0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32, 0_u32);
+        let (mut jitter_generic, mut jitter_edge, mut jitter_atom) = (0_u32, 0_u32, 0_u32);
+        let mut missing_samples = false;
 
         for captures in captures_all {
             let error_type = captures.name("type").unwrap().as_str();
@@ -458,28 +458,28 @@ impl TrackExtractor for XldParserTrack {
             };
 
             match error_type {
-                "Read error" => { r_c = count },
-                "Skipped (treated as error)" => { s_c = count },
-                "Damaged sector count" => { dmg_c = count },
-                "Jitter error (maybe fixed)" => { jg_c = count },
-                "Edge jitter error (maybe fixed)" => { je_c = count },
-                "Atom jitter error (maybe fixed)" => { ja_c = count },
-                "Drift error (maybe fixed)" => { drf_c = count },
-                "Dropped bytes error (maybe fixed)" => { drp_c = count },
-                "Duplicated bytes error (maybe fixed)" => { dup_c = count },
-                "Inconsistency in error sectors" => { inc_c = count },
-                "Missing samples" => { m_s = true },
+                "Read error" => { read = count },
+                "Skipped (treated as error)" => { skip = count },
+                "Damaged sector count" => { damaged_count = count },
+                "Jitter error (maybe fixed)" => { jitter_generic = count },
+                "Edge jitter error (maybe fixed)" => { jitter_edge = count },
+                "Atom jitter error (maybe fixed)" => { jitter_atom = count },
+                "Drift error (maybe fixed)" => { drift = count },
+                "Dropped bytes error (maybe fixed)" => { dropped = count },
+                "Duplicated bytes error (maybe fixed)" => { duplicated = count },
+                "Inconsistency in error sectors" => { inconsistent_count = count },
+                "Missing samples" => { missing_samples = true },
                 _ => {}
             }
         }
 
         // Damaged sector positions
-        let mut dmg_r: Vec<TrackErrorRange> = Vec::new();
+        let mut damaged_ranges: Vec<TrackErrorRange> = Vec::new();
         if let Some(c) = DAMAGED_SECTORS.captures(&self.raw) {
             let positions = ERROR_TIME.captures_iter(c.get(0).unwrap().as_str());
 
             for position in positions {
-                dmg_r.push(
+                damaged_ranges.push(
                     TrackErrorRange::new(
                         Time::from_mm_ss_cs(position.name("time").unwrap().as_str()),
                         Time::from_ss("0")
@@ -487,15 +487,15 @@ impl TrackExtractor for XldParserTrack {
                 );
             }
         }
-        let dmg_d = TrackErrorData::new(dmg_c, dmg_r);
+        let damaged_sectors = TrackErrorData::new(damaged_count, damaged_ranges);
 
         // Suspicious positions
-        let mut inc_r: Vec<TrackErrorRange> = Vec::new();
+        let mut inconsistent_ranges: Vec<TrackErrorRange> = Vec::new();
         if let Some(c) = SUSPICIOUS_POSITIONS.captures(&self.raw) {
             let positions = ERROR_TIME.captures_iter(c.get(0).unwrap().as_str());
 
             for position in positions {
-                inc_r.push(
+                inconsistent_ranges.push(
                     TrackErrorRange::new(
                         Time::from_mm_ss_cs(position.name("time").unwrap().as_str()),
                         Time::from_ss("0")
@@ -503,9 +503,9 @@ impl TrackExtractor for XldParserTrack {
                 );
             }
         }
-        let inc_d = TrackErrorData::new(inc_c, inc_r);
+        let inconsistent_err_sectors = TrackErrorData::new(inconsistent_count, inconsistent_ranges);
 
-        TrackError::new_xld(r_c, s_c, jg_c, je_c, ja_c, drf_c, drp_c, dup_c, dmg_d, inc_d, m_s)
+        TrackError::new_xld(read, skip, jitter_generic, jitter_edge, jitter_atom, drift, dropped, duplicated, damaged_sectors, inconsistent_err_sectors, missing_samples)
     }
 
     fn extract_ar_info(&self) -> Vec<AccurateRipUnit> {
