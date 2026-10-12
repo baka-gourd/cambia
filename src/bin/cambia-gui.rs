@@ -44,7 +44,7 @@ use windows_sys::Win32::UI::HiDpi::{
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::Shell::{
     DragAcceptFiles, DragFinish, DragQueryFileW, ILClone, ILCreateFromPathW, ILFindLastID, ILFree,
-    ILRemoveLastID, SHOpenFolderAndSelectItems, HDROP,
+    ILRemoveLastID, ShellExecuteW, SHOpenFolderAndSelectItems, HDROP,
 };
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -271,6 +271,7 @@ struct MainModel {
     loading_label: Child<Label>,
     loading_progress: Child<Progress>,
     open_location_button: Child<Button>,
+    musicbrainz_button: Child<Button>,
     list: Child<ListBox>,
     internal_logs: Child<ListBox>,
     tracks: Child<ListBox>,
@@ -311,6 +312,7 @@ enum MainMessage {
     SelectLog,
     SelectParsedLog,
     OpenFileLocation,
+    OpenMusicBrainz,
     LoadPaths(Vec<PathBuf>),
     LoadStarted(u64, String),
     LoadProgress(u64, usize, usize, String),
@@ -359,6 +361,9 @@ impl Component for MainModel {
             open_location_button: Button = (&details_scroll) => {
                 text: "打开文件位置",
             },
+            musicbrainz_button: Button = (&details_scroll) => {
+                text: "MusicBrainz",
+            },
         }
 
         window.set_text(options.app_name.as_str())?;
@@ -398,6 +403,7 @@ impl Component for MainModel {
             loading_label,
             loading_progress,
             open_location_button,
+            musicbrainz_button,
             list,
             internal_logs,
             tracks,
@@ -434,6 +440,7 @@ impl Component for MainModel {
         model.details_scroll.set_hscroll(true)?;
         model.loading_progress.set_visible(false)?;
         model.open_location_button.set_visible(false)?;
+        model.musicbrainz_button.set_visible(false)?;
         if !init_paths.is_empty() {
             model.start_load(init_paths, sender.clone());
         }
@@ -450,6 +457,9 @@ impl Component for MainModel {
             },
             self.open_location_button => {
                 ButtonEvent::Click => MainMessage::OpenFileLocation,
+            },
+            self.musicbrainz_button => {
+                ButtonEvent::Click => MainMessage::OpenMusicBrainz,
             },
             self.list => {
                 ListBoxEvent::Select => MainMessage::SelectLog,
@@ -470,6 +480,7 @@ impl Component for MainModel {
         let _ = self.loading_label.update().await?;
         let _ = self.loading_progress.update().await?;
         let _ = self.open_location_button.update().await?;
+        let _ = self.musicbrainz_button.update().await?;
         let _ = self.list.update().await?;
         let _ = self.internal_logs.update().await?;
         let _ = self.tracks.update().await?;
@@ -541,6 +552,12 @@ impl Component for MainModel {
             MainMessage::OpenFileLocation => {
                 if let Some(entry) = self.current_entry() {
                     let _ = open_file_location(&entry.path);
+                }
+                Ok(false)
+            }
+            MainMessage::OpenMusicBrainz => {
+                if let Some(url) = self.current_musicbrainz_url() {
+                    let _ = open_url(url);
                 }
                 Ok(false)
             }
@@ -641,7 +658,10 @@ impl Component for MainModel {
         self.loading_label.set_visible(self.loading)?;
         self.loading_progress.set_visible(self.loading)?;
         let has_entry = self.current_entry().is_some();
+        let has_musicbrainz_url = self.current_musicbrainz_url().is_some();
         self.open_location_button.set_visible(has_entry)?;
+        self.musicbrainz_button
+            .set_visible(has_musicbrainz_url)?;
         if self.loading_total > 0 {
             self.loading_progress.set_indeterminate(false)?;
             self.loading_progress.set_minimum(0)?;
@@ -719,6 +739,7 @@ impl Component for MainModel {
         self.details_scroll.render()?;
         self.details_scroll_spacer.render()?;
         self.open_location_button.render()?;
+        self.musicbrainz_button.render()?;
         for label in &mut self.detail_labels {
             label.render()?;
         }
@@ -786,6 +807,19 @@ impl MainModel {
 
     fn current_entry(&self) -> Option<&LogEntry> {
         self.logs.get(self.selected)
+    }
+
+    fn current_musicbrainz_url(&self) -> Option<&str> {
+        let url = self.current_entry()?
+            .response
+            .parsed
+            .parsed_logs
+            .get(self.selected_parsed)?
+            .toc
+            .mbz
+            .url
+            .as_str();
+        (!url.is_empty()).then_some(url)
     }
 
     fn rebuild_visible_logs(&mut self) {
@@ -1154,6 +1188,10 @@ impl MainModel {
             .set_loc(Point::new(DETAIL_PAD + 18.0, button_y))?;
         self.open_location_button
             .set_size(Size::new(132.0, OPEN_BUTTON_H))?;
+        self.musicbrainz_button
+            .set_loc(Point::new(DETAIL_PAD + 18.0 + 132.0 + OPEN_BUTTON_GAP, button_y))?;
+        self.musicbrainz_button
+            .set_size(Size::new(120.0, OPEN_BUTTON_H))?;
         let spacer_x = max_label_right.max(width - DETAIL_PAD - right_pad);
         let spacer_y = y + bottom_pad;
         self.details_scroll_spacer
@@ -2373,6 +2411,30 @@ fn open_file_location(path: &Path) -> std::io::Result<()> {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn open_url(url: &str) -> std::io::Result<()> {
+    let operation = "open\0".encode_utf16().collect::<Vec<u16>>();
+    let url = url
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<u16>>();
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            url.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+        )
+    };
+    if result as isize <= 32 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
     }
 }
 

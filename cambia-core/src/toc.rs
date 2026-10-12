@@ -143,14 +143,23 @@ pub fn raw_to_mbz(toc_raw: TocRaw) -> TocHash {
     let mbz_b64_alphabet = Alphabet::new("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._").unwrap();
     let mbz_b64_engine = GeneralPurpose::new(&mbz_b64_alphabet, PAD);
 
-    let url_param: String = format!("{} {} {} {}",
+    let url_param: String = format!("{}+{}+{}+{}",
                                     offsets[0].track,
                                     offsets.last().copied().unwrap().track,
                                     (toc_raw.lead_out + 150),
-                                    offsets.iter().map(|offset| (offset.start_sector + 150).to_string()).collect::<Vec<String>>().join(" ")
+                                    offsets.iter().map(|offset| (offset.start_sector + 150).to_string()).collect::<Vec<String>>().join("+")
                                 );
 
-    TocHash::new(mbz_b64_engine.encode(result).replace('=', "-"), format!("https://musicbrainz.org/cdtoc/attach?toc={}", encode(&url_param)))
+    let hash = mbz_b64_engine.encode(result).replace('=', "-");
+    TocHash::new(
+        hash.clone(),
+        format!(
+            "https://musicbrainz.org/cdtoc/attach?id={}&tracks={}&toc={}",
+            hash,
+            offsets.len(),
+            url_param
+        ),
+    )
 
     
 }
@@ -299,4 +308,40 @@ fn get_data_tracks(entries: &Vec<TocEntry>) -> Result<u32, TocError> {
     }
 
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn musicbrainz_attach_url_contains_disc_id_track_count_and_toc() {
+        let starts = [0, 12627, 24589, 37062, 50640, 61351, 73051];
+        let entries = starts
+            .iter()
+            .enumerate()
+            .map(|(index, start)| {
+                let end = starts.get(index + 1).copied().unwrap_or(84930) - 1;
+                TocEntry::new(
+                    index as u32 + 1,
+                    Time::from_ss("0"),
+                    Time::from_ss("0"),
+                    *start,
+                    end,
+                )
+            })
+            .collect();
+
+        let mbz = raw_to_mbz(TocRaw {
+            entries,
+            lead_out: 84930,
+            data_tracks: 0,
+        });
+
+        assert_eq!(mbz.hash, "DwEQrVZlKXK3BdBcVe55ArcKsxE-");
+        assert_eq!(
+            mbz.url,
+            "https://musicbrainz.org/cdtoc/attach?id=DwEQrVZlKXK3BdBcVe55ArcKsxE-&tracks=7&toc=1+7+85080+150+12777+24739+37212+50790+61501+73201"
+        );
+    }
 }
